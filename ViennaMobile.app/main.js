@@ -1,12 +1,23 @@
-debug(1)
+debug(0)
 
 Plugins.load("UIKit")
 Plugins.load("SQLite")
-include('js/db.js')
-include('js/browsers.js')
+include('js/ORM.js')
+include('js/common.js')
+
+
 
 // connecting DB
-var db = new SQLite(Application.userLibraryDirectory + '/ViennaMobile/messages.db')
+var rootDir = Application.userHomeDirectory + '/Media/ViennaMobile'
+var dbh = new SQLite(rootDir + '/messages.db')
+
+ORM.dbh = dbh
+var RSSFolder = ORM.newClass('rss_folders', {folder_id: {primary_key: true, type: Number}, home_page: {type: String}})
+var Folder = ORM.newClass('folders', {folder_id: {primary_key: true, type: Number}, parent_id: {type: Number}, unread_count: {type: Number}, foldername: {type: String}})
+var Message = ORM.newClass('messages', {message_id: {primary_key: true, type: String}, folder_id: {type: Number}, text: {type: String, readonly: true}, title: {type: String, readonly: true}, read_flag: {type: Number}})
+
+// terminate()
+
 // define window objec
 var defaultView = new UIWindow(UIHardware.fullScreenApplicationContentRect)
 // setting up window
@@ -36,7 +47,7 @@ function onLoad ()
 	renderFeeds()
 	
 	defaultView.tview.transition(0, defaultView.views.feeds)
-	makeDefaultPng()
+	// makeDefaultPng()
 }
 
 
@@ -79,15 +90,14 @@ function renderFeeds ()
 {
 	// preparing feeds data
 	var imageByFolderId = {}
-	var rss = db.get('SELECT folder_id, home_page FROM rss_folders')
-	var uld = Application.userLibraryDirectory
+	var rss = RSSFolder.find(1) // db.get('SELECT folder_id, home_page FROM rss_folders')
 	for (var i = 0; i < rss.length; i++)
 	{
 		var match = rss[i].home_page.match(/http:\/\/([\w\-\.]+)/)
 		if (match)
 		{
 			var name = match[1].replace(/\./g, '_')
-			var image = Images.imageWithContentsOfFile(uld + '/ViennaMobile/icons/' + name + '.tiff')
+			var image = Images.imageWithContentsOfFile(rootDir + '/Images/' + name + '.tiff')
 			if (image)
 				imageByFolderId[rss[i].folder_id] = image
 			else
@@ -96,7 +106,7 @@ function renderFeeds ()
 	}
 	
 	
-	var folders = db.get('SELECT * FROM folders WHERE type = 3 OR type = 4')
+	var folders = Folder.find('type = 3 OR type = 4') // db.get('SELECT * FROM folders WHERE type = 3 OR type = 4')
 	folders = folders.sort(function (a, b) { return b.parent_id - a.parent_id })
 	
 	var list = defaultView.views.feeds
@@ -104,10 +114,10 @@ function renderFeeds ()
 	var sections = list.sections = []
 	var foldersById = {}
 	var foldersByParentId = {}
-
+	
 	for (var i = 0; i < folders.length; i++)
 		foldersById[folders[i].folder_id] = folders[i]
-
+	
 	for (var i = 0; i < folders.length; i++)
 		if (foldersById[folders[i].parent_id])
 			foldersById[folders[i].parent_id].isParent = true
@@ -128,7 +138,7 @@ function renderFeeds ()
 			if (folder.parent_id != lastParentId)
 			{
 				lastParentId = folder.parent_id
-				sections.push({name: foldersById[folder.parent_id].foldername, rowNumber: i})
+				sections.push({name: foldersById[folder.parent_id] ? foldersById[folder.parent_id].foldername : "???", rowNumber: i})
 			}
 		}
 	}
@@ -151,7 +161,9 @@ function buildMessagesView ()
 	{
 		var cell = t.cells[r]
 		var message = cell.message
-		db.execute('UPDATE messages SET read_flag = 1 WHERE message_id = "' + message.message_id.replace(/"/, '"""') + '"')
+		message.read_flag = 1
+		message.save()
+		//db.execute('UPDATE messages SET read_flag = 1 WHERE message_id = "' + message.message_id.replace(/"/, '"""') + '"')
 		cell.setDisclosureStyle(0)
 		renderPost(message)
 		defaultView.tview.transition(1, defaultView.views.post)
@@ -171,7 +183,7 @@ function buildMessagesView ()
 
 function renderMessages (feed)
 {
-	var messages = db.get('SELECT * FROM messages WHERE folder_id = ' + feed.folder_id + ' ORDER BY date DESC')
+	var messages = Message.find('folder_id = ' + feed.folder_id + ' ORDER BY date DESC') // db.get('SELECT * FROM messages WHERE folder_id = ' + feed.folder_id + ' ORDER BY date DESC')
 	
 	var table = defaultView.views.messages
 	var cells = table.cells = []
