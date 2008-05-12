@@ -1,11 +1,11 @@
-debug(0)
+debug(1)
 
 Plugins.load("UIKit")
 Plugins.load("SQLite")
 include('js/ORM.js')
 include('js/common.js')
 
-
+var prefs = { show_images: true }
 
 // connecting DB
 var rootDir = Application.userHomeDirectory + '/Media/ViennaMobile'
@@ -88,23 +88,33 @@ function buildFeedsView ()
 
 function renderFeeds ()
 {
-	// preparing feeds data
-	var imageByFolderId = {}
-	var rss = RSSFolder.find(1) // db.get('SELECT folder_id, home_page FROM rss_folders')
-	for (var i = 0; i < rss.length; i++)
+	if (prefs.show_images)
 	{
-		var match = rss[i].home_page.match(/http:\/\/([\w\-\.]+)/)
-		if (match)
+		// preparing feeds images
+		var imageByFolderId = {}
+		var rss = RSSFolder.find(1)
+		for (var i = 0; i < rss.length; i++)
 		{
-			var name = match[1].replace(/\./g, '_')
-			var image = Images.imageWithContentsOfFile(rootDir + '/Images/' + name + '.tiff')
-			if (image)
-				imageByFolderId[rss[i].folder_id] = image
-			else
-				1//log(name)
+			var match = rss[i].home_page.match(/http:\/\/([\w\-\.]+)/)
+			if (match)
+			{
+				var name = match[1].replace(/\./g, '_')
+				var fn = rootDir + '/Images/' + name + '.tiff'
+				var image = Images.imageWithContentsOfFile(fn)
+				if (image)
+				{
+					if (image.size[0] != 16)
+					{
+						image.resize(16, 16)
+						image.saveToFile(fn)
+					}
+					imageByFolderId[rss[i].folder_id] = image
+				}
+				else
+					1//log(name)
+			}
 		}
 	}
-	
 	
 	var folders = Folder.find('type = 3 OR type = 4') // db.get('SELECT * FROM folders WHERE type = 3 OR type = 4')
 	folders = folders.sort(function (a, b) { return b.parent_id - a.parent_id })
@@ -130,8 +140,9 @@ function renderFeeds ()
 		if (!folder.isParent)
 		{
 			var cell = new UIImageAndTextTableCell()
-			cell.title = folder.foldername
-			cell.setImage(imageByFolderId[folder.folder_id])
+			cell.title = folder.foldername + ' ('+folder.unread_count+')'
+			if (imageByFolderId)
+				cell.setImage(imageByFolderId[folder.folder_id])
 			cell.folder = folder
 			cells.push(cell)
 		
@@ -163,7 +174,6 @@ function buildMessagesView ()
 		var message = cell.message
 		message.read_flag = 1
 		message.save()
-		//db.execute('UPDATE messages SET read_flag = 1 WHERE message_id = "' + message.message_id.replace(/"/, '"""') + '"')
 		cell.setDisclosureStyle(0)
 		renderPost(message)
 		defaultView.tview.transition(1, defaultView.views.post)
@@ -183,9 +193,12 @@ function buildMessagesView ()
 
 function renderMessages (feed)
 {
-	var messages = Message.find('folder_id = ' + feed.folder_id + ' ORDER BY date DESC') // db.get('SELECT * FROM messages WHERE folder_id = ' + feed.folder_id + ' ORDER BY date DESC')
-	
 	var table = defaultView.views.messages
+	
+	if (table.feed == feed)
+		return
+	
+	var messages = feed.messages = Message.find('folder_id = ' + feed.folder_id + ' ORDER BY date DESC')
 	var cells = table.cells = []
 	for (var i = 0; i < messages.length; i++)
 	{
@@ -193,14 +206,17 @@ function renderMessages (feed)
 		var cell = new UIImageAndTextTableCell()
 		cell.title = message.title
 		cell.message = message
-		cells.push(cell)
-		cell.setDisclosureStyle(message.read_flag == 1 ? 0 : 1)
+		cells[i] = cell
+		if (!message.read_flag)
+			cell.setDisclosureStyle(1)
 	}
 	
 	// table.clearAllData()
 	table.reloadData()
-	table.highlightRow(-1)
+	table.highlightRow(0)
 	table.scrollRowToVisible(0)
+	
+	table.feed = feed
 }
 
 function buildPostView (post)
